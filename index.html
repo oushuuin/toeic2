@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>摄像头测试</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    video {
+      width: 90%;
+      max-width: 600px;
+      border: 2px solid #ccc;
+      border-radius: 10px;
+    }
+    #status {
+      margin-top: 20px;
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2>摄像头测试（后置）</h2>
+  <video id="camera" autoplay playsinline></video>
+  <div id="status">等待摄像头启动...</div>
+
+  <script>
+    const video = document.getElementById('camera');
+    const statusDiv = document.getElementById('status');
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment"  // 更兼容的写法
+          },
+          audio: false
+        });
+        video.srcObject = stream;
+        statusDiv.textContent = "✅ 摄像头已启动（后置）";
+        statusDiv.style.color = "green";
+      } catch (error) {
+        console.error("摄像头启动失败", error);
+        statusDiv.textContent = "❌ 摄像头权限获取失败：" + error.message;
+        statusDiv.style.color = "red";
+      }
+    }
+
+    startCamera();
+  </script>
+</body>
+</html>
