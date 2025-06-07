@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>自动识别答题系统</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    #video {
+      width: 100%;
+      max-width: 400px;
+      border: 1px solid #ccc;
+    }
+    #gptAnswer {
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 10px;
+      background: #f9f9f9;
+    }
+    #startBtn {
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>AI 自动拍照答题系统</h2>
+  <button id="startBtn">启用语音和摄像头</button><br><br>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <h3>GPT 回答：</h3>
+  <div id="gptAnswer">请点击按钮开始...</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+
+  <script>
+    const API_KEY = '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'; // 替换为你的 OpenAI API Key
+    const API_URL = 'https://api.openai.com/v1/chat/completions';
+
+    const startBtn = document.getElementById('startBtn');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const gptAnswer = document.getElementById('gptAnswer');
+
+    let videoStream = null;
+    let enVoice = null;
+    let voiceEnabled = false;
+
+    function initVoice() {
+      const voices = speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        enVoice = voices.find(v => v.lang === 'en-US') || voices[0];
+        voiceEnabled = true;
+      }
+    }
+
+    function speak(text) {
+      if (!voiceEnabled || !text) return;
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'en-US';
+      utter.voice = enVoice;
+      speechSynthesis.speak(utter);
+    }
+
+    function beep() {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime);
+      oscillator.connect(audioCtx.destination);
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.stop();
+        audioCtx.close();
+      }, 150);
+    }
+
+    async function startCamera() {
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        video.srcObject = videoStream;
+        startAutoCaptureLoop();
+      } catch (err) {
+        alert('摄像头权限获取失败');
+        console.error(err);
+      }
+    }
+
+    async function captureAndProcess() {
+      gptAnswer.textContent = '识别中...';
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.filter = 'grayscale(100%)';
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+
+      try {
+        const result = await Tesseract.recognize(blob, 'chi_sim+eng');
+        const text = result.data.text.trim();
+        console.log('OCR识别结果:', text);
+
+        if (!text || text.length < 10) {
+          gptAnswer.textContent = 'OCR识别内容过少，无法识别题目';
+          return;
+        }
+
+        const messages = [
+          {
+            role: 'system',
+            content: '以下是一道TOEIC英语选择题，请你根据题干和选项判断正确答案，只返回一个字母（a、b、c或d），不要加解释，不要重复题干内容。'
+          },
+          {
+            role: 'user',
+            content: text
+          }
+        ];
+
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-3.5-turbo',
+            messages
+          })
+        });
+
+        console.log('请求状态码:', response.status);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API请求失败:', errorText);
+          gptAnswer.textContent = 'GPT请求失败';
+          return;
+        }
+
+        const data = await response.json();
+        console.log('GPT返回结果:', data);
+
+        const answer = data.choices?.[0]?.message?.content?.trim() || '无回答';
+        gptAnswer.textContent = answer;
+        speak(answer);
+
+      } catch (err) {
+        console.error(err);
+        gptAnswer.textContent = '识别失败';
+      }
+    }
+
+    async function startAutoCaptureLoop() {
+      while (true) {
+        beep();
+        await new Promise(r => setTimeout(r, 3000));
+        await captureAndProcess();
+        await new Promise(r => setTimeout(r, 60000));
+        beep();
+        await new Promise(r => setTimeout(r, 3000));
+        await captureAndProcess();
+      }
+    }
+
+    startBtn.addEventListener('click', () => {
+      initVoice();
+      speak('Voice enabled');
+      startCamera();
+      startBtn.disabled = true;
+      startBtn.textContent = '✅ 已启用';
+    });
+
+    speechSynthesis.getVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = initVoice;
+    }
+  </script>
+</body>
+</html>
